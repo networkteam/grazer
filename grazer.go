@@ -185,11 +185,6 @@ func (r *Revalidator) Revalidate(ctx context.Context, routePaths []string) error
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", r.revalidateToken))
 	req.Header.Set("Content-Type", "application/json")
 
-	dump, _ := httputil.DumpRequestOut(req, true)
-	log.
-		WithField("component", "revalidator").
-		Debug(string(dump))
-
 	resp, err := r.client.Do(req)
 	if err != nil {
 		return fmt.Errorf("sending request: %w", err)
@@ -298,36 +293,48 @@ func (c *controller) revalidate(ctx context.Context, invalidatedDocuments []reva
 	c.mx.Lock()
 	defer c.mx.Unlock()
 
-	// Store route paths that were given for revalidation as known route paths
-	invalidatedRoutePaths := make([]string, len(invalidatedDocuments))
-	for i, document := range invalidatedDocuments {
-		c.routePaths[document.RoutePath] = struct{}{}
-		invalidatedRoutePaths[i] = document.RoutePath
-	}
-
-	log.
-		WithField("component", "controller").
-		WithField("invalidatedRoutePaths", invalidatedRoutePaths).
-		Debug("marking invalidated route paths")
-
 	documentsResponse, err := c.fetcher.ListDocuments(ctx)
 	if err != nil {
 		return fmt.Errorf("listing documents: %w", err)
 	}
 
+	currentRoutePaths := make(map[string]struct{}, len(invalidatedDocuments)+len(documentsResponse.Documents))
+
+	// Store route paths that were given for revalidation as known route paths
+	invalidatedRoutePaths := make([]string, len(invalidatedDocuments))
+	for i, document := range invalidatedDocuments {
+		invalidatedRoutePaths[i] = document.RoutePath
+
+		currentRoutePaths[document.RoutePath] = struct{}{}
+		c.routePaths[document.RoutePath] = struct{}{}
+	}
+
 	// Store all route paths that were fetched as known route paths
 	allRoutePaths := make([]string, len(documentsResponse.Documents))
 	for i, document := range documentsResponse.Documents {
-		c.routePaths[document.RoutePath] = struct{}{}
 		allRoutePaths[i] = document.RoutePath
+
+		currentRoutePaths[document.RoutePath] = struct{}{}
+		c.routePaths[document.RoutePath] = struct{}{}
+	}
+
+	// Add known route paths that are not in current route paths (i.e. were deleted)
+	// TODO Not sure if we actually need to do this: the deleted document route path is already in the invalidated route paths
+	extraRoutePaths := make([]string, 0)
+	for routePath := range c.routePaths {
+		if _, ok := currentRoutePaths[routePath]; !ok {
+			extraRoutePaths = append(extraRoutePaths, routePath)
+		}
 	}
 
 	log.
 		WithField("component", "controller").
+		WithField("invalidatedRoutePaths", invalidatedRoutePaths).
 		WithField("allRoutePaths", allRoutePaths).
-		Debug("fetched documents")
+		WithField("extraRoutePaths", extraRoutePaths).
+		Debug("Enqueuing route paths")
 
-	c.queue.enqueue(invalidatedRoutePaths, allRoutePaths)
+	c.queue.enqueue(invalidatedRoutePaths, append(allRoutePaths, extraRoutePaths...))
 
 	c.ensureProcessQueue()
 
@@ -382,6 +389,7 @@ func (c *controller) run() {
 			start := time.Now()
 
 			ctx := context.Background()
+			// TODO Add retry handling around this call
 			err := c.revalidator.Revalidate(ctx, routePaths)
 			if err != nil {
 				log.
