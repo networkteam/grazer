@@ -1,0 +1,25 @@
+app_root: .
+ignored_folders:
+  - vendor
+  - log
+  - logs
+  - tmp
+  - node_modules
+  - bin
+  - templates
+included_extensions:
+  - .go
+build_target_path: "./cmd"
+build_path: ./tmp/
+build_flags: [ ]
+build_delay: 100ms
+binary_name: refresh-build
+command_flags:
+  - --revalidate-token=a-secret-token
+  - --next-revalidate-url=http://127.0.0.1:3000/api/revalidate-documents
+  - --neos-base-url=http://127.0.0.1:8081
+  - --revalidate-batch-size=2
+  - --verbose
+command_env: [ ]
+enable_colors: true
+log_name: ""
