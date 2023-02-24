@@ -15,6 +15,7 @@ import (
 	"github.com/apex/log/handlers/text"
 	"github.com/mattn/go-isatty"
 
+	"github.com/cenkalti/backoff/v4"
 	"github.com/urfave/cli/v2"
 
 	"github.com/networkteam/grazer"
@@ -70,6 +71,12 @@ func main() {
 				Value:   15 * time.Second,
 				EnvVars: []string{"GZ_FETCH_TIMEOUT"},
 			},
+			&cli.DurationFlag{
+				Name:    "initial-revalidate-delay",
+				Usage:   "Delay before an initial revalidation of all pages, set to 0 to disable",
+				Value:   15 * time.Second,
+				EnvVars: []string{"GZ_INITIAL_REVALIDATE_DELAY"},
+			},
 			&cli.BoolFlag{
 				Name:    "verbose",
 				Value:   false,
@@ -124,7 +131,9 @@ func main() {
 				<-ctx.Done()
 				log.Debug("Shutting down HTTP server...")
 				if err := srv.Shutdown(shutdownCtx); err != nil {
-					log.WithError(err).Error("Error shutting down server")
+					log.
+						WithError(err).
+						Error("Error shutting down server")
 				}
 				log.Debug("HTTP server shut down")
 				log.Debug("Waiting for controller to finish...")
@@ -133,6 +142,27 @@ func main() {
 
 				shutdownDone()
 			}()
+
+			if c.Duration("initial-revalidate-delay") > 0 {
+				log.Debugf("Scheduling initial revalidation in %s", c.Duration("initial-revalidate-delay"))
+				time.AfterFunc(c.Duration("initial-revalidate-delay"), func() {
+					ctx := context.Background()
+					err := backoff.Retry(func() error {
+						err := h.InitialRevalidate(ctx)
+						if err != nil {
+							log.
+								WithError(err).
+								Warn("Initial revalidation failed, retrying...")
+						}
+						return err
+					}, backoff.NewExponentialBackOff())
+					if err != nil {
+						log.
+							WithError(err).
+							Error("Initial revalidation failed")
+					}
+				})
+			}
 
 			log.Infof("Listening on %s", c.String("address"))
 			err = srv.ListenAndServe()

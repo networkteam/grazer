@@ -132,6 +132,13 @@ func (h *Handler) ShutdownAndWait() {
 	h.wg.Wait()
 }
 
+func (h *Handler) InitialRevalidate(ctx context.Context) error {
+	log.
+		WithField("component", "controller").
+		Debug("Performing initial revalidate")
+	return h.ctrl.revalidate(ctx, nil)
+}
+
 type RevalidatorOpts struct {
 	URL             string
 	RevalidateToken string
@@ -264,10 +271,9 @@ type controller struct {
 	revalidator *Revalidator
 	fetcher     *Fetcher
 
-	queue      *queue
-	routePaths map[string]struct{}
-	sig        chan struct{}
-	wg         sync.WaitGroup
+	queue *queue
+	sig   chan struct{}
+	wg    sync.WaitGroup
 }
 
 func newController(storage *Storage, revalidator *Revalidator, fetcher *Fetcher) *controller {
@@ -278,9 +284,8 @@ func newController(storage *Storage, revalidator *Revalidator, fetcher *Fetcher)
 		revalidator: revalidator,
 		fetcher:     fetcher,
 
-		queue:      newQueue(),
-		routePaths: make(map[string]struct{}),
-		sig:        make(chan struct{}),
+		queue: newQueue(),
+		sig:   make(chan struct{}),
 	}
 
 	ctrl.wg.Add(1)
@@ -306,7 +311,6 @@ func (c *controller) revalidate(ctx context.Context, invalidatedDocuments []reva
 		invalidatedRoutePaths[i] = document.RoutePath
 
 		currentRoutePaths[document.RoutePath] = struct{}{}
-		c.routePaths[document.RoutePath] = struct{}{}
 	}
 
 	// Store all route paths that were fetched as known route paths
@@ -315,26 +319,15 @@ func (c *controller) revalidate(ctx context.Context, invalidatedDocuments []reva
 		allRoutePaths[i] = document.RoutePath
 
 		currentRoutePaths[document.RoutePath] = struct{}{}
-		c.routePaths[document.RoutePath] = struct{}{}
-	}
-
-	// Add known route paths that are not in current route paths (i.e. were deleted)
-	// TODO Not sure if we actually need to do this: the deleted document route path is already in the invalidated route paths
-	extraRoutePaths := make([]string, 0)
-	for routePath := range c.routePaths {
-		if _, ok := currentRoutePaths[routePath]; !ok {
-			extraRoutePaths = append(extraRoutePaths, routePath)
-		}
 	}
 
 	log.
 		WithField("component", "controller").
 		WithField("invalidatedRoutePaths", invalidatedRoutePaths).
 		WithField("allRoutePaths", allRoutePaths).
-		WithField("extraRoutePaths", extraRoutePaths).
 		Debug("Enqueuing route paths")
 
-	c.queue.enqueue(invalidatedRoutePaths, append(allRoutePaths, extraRoutePaths...))
+	c.queue.enqueue(invalidatedRoutePaths, allRoutePaths)
 
 	c.ensureProcessQueue()
 

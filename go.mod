@@ -4,6 +4,7 @@ go 1.19
 
 require (
 	github.com/apex/log v1.9.0
+	github.com/cenkalti/backoff/v4 v4.2.0
 	github.com/mattn/go-isatty v0.0.8
 	github.com/stretchr/testify v1.8.1
 	github.com/tj/assert v0.0.3
