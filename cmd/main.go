@@ -32,12 +32,6 @@ func main() {
 				Usage:   "Address for HTTP server to listen on",
 				EnvVars: []string{"GZ_ADDRESS"},
 			},
-			&cli.PathFlag{
-				Name:    "data",
-				Usage:   "Path to data directory",
-				Value:   "data",
-				EnvVars: []string{"GZ_DATA"},
-			},
 			&cli.StringFlag{
 				Name:    "revalidate-token",
 				Usage:   "A secret token to use for revalidation",
@@ -62,8 +56,13 @@ func main() {
 			},
 			&cli.StringFlag{
 				Name:    "neos-base-url",
-				Usage:   "The base URL of the Neos CMS instance",
+				Usage:   "The base URL of the Neos CMS instance for fetching documents from the content API",
 				EnvVars: []string{"GZ_NEOS_BASE_URL"},
+			},
+			&cli.StringFlag{
+				Name:    "public-base-url",
+				Usage:   "The publicly accessible base URL for sending correct proxy headers to Neos (for multi-site setups)",
+				EnvVars: []string{"GZ_PUBLIC_BASE_URL"},
 			},
 			&cli.DurationFlag{
 				Name:    "fetch-timeout",
@@ -96,11 +95,6 @@ func main() {
 			ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 			defer cancel()
 
-			storage, err := grazer.NewStorage(c.String("data"))
-			if err != nil {
-				return err
-			}
-
 			revalidator := grazer.NewRevalidator(grazer.RevalidatorOpts{
 				URL:             c.String("next-revalidate-url"),
 				RevalidateToken: c.String("revalidate-token"),
@@ -108,12 +102,12 @@ func main() {
 			})
 
 			fetcher := grazer.NewFetcher(grazer.FetcherOpts{
-				Timeout:     c.Duration("fetch-timeout"),
-				NeosBaseURL: c.String("neos-base-url"),
+				Timeout:       c.Duration("fetch-timeout"),
+				NeosBaseURL:   c.String("neos-base-url"),
+				PublicBaseURL: c.String("public-base-url"),
 			})
 
 			h := grazer.NewHandler(grazer.HandlerOpts{
-				Storage:             storage,
 				Revalidator:         revalidator,
 				Fetcher:             fetcher,
 				RevalidateToken:     c.String("revalidate-token"),
@@ -165,7 +159,7 @@ func main() {
 			}
 
 			log.Infof("Listening on %s", c.String("address"))
-			err = srv.ListenAndServe()
+			err := srv.ListenAndServe()
 			if errors.Is(err, http.ErrServerClosed) {
 				// expected error
 			} else if err != nil {

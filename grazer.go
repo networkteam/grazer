@@ -8,7 +8,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httputil"
-	"os"
+	"net/url"
+	"strings"
 	"sync"
 	"time"
 
@@ -18,7 +19,6 @@ import (
 type HandlerOpts struct {
 	RevalidateToken string
 
-	Storage             *Storage
 	Revalidator         *Revalidator
 	Fetcher             *Fetcher
 	RevalidateBatchSize int
@@ -43,7 +43,7 @@ type Handler struct {
 }
 
 func NewHandler(opts HandlerOpts) *Handler {
-	ctrl := newController(opts.Storage, opts.Revalidator, opts.Fetcher)
+	ctrl := newController(opts.Revalidator, opts.Fetcher)
 	if opts.RevalidateBatchSize == 0 {
 		opts.RevalidateBatchSize = 1
 	}
@@ -68,7 +68,7 @@ func (h *Handler) handleRevalidate(w http.ResponseWriter, r *http.Request) {
 	if subtle.ConstantTimeCompare([]byte(authHeader), []byte(fmt.Sprintf("Bearer %s", h.revalidateToken))) != 1 {
 		log.
 			WithField("component", "http").
-			Warn("invalid revalidate token")
+			Warn("Invalid revalidate token")
 		w.WriteHeader(http.StatusForbidden)
 		return
 	}
@@ -79,7 +79,8 @@ func (h *Handler) handleRevalidate(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.
 			WithField("component", "http").
-			WithError(err).Warn("decoding revalidate request body")
+			WithError(err).
+			Warn("Decoding revalidate request body")
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
@@ -91,23 +92,24 @@ func (h *Handler) handleRevalidate(w http.ResponseWriter, r *http.Request) {
 
 		log.
 			WithField("component", "http").
-			Info("revalidating invalidated documents")
+			Info("Revalidating invalidated documents")
 
 		start := time.Now()
 
 		ctx := context.Background()
+		// TODO Add retry with backoff for some duration (e.g. 1 minute)
 		err := h.ctrl.revalidate(ctx, body.Documents)
 		if err != nil {
 			log.
 				WithField("component", "http").
 				WithError(err).
-				Warn("revalidate failed")
+				Warn("Revalidate failed")
 		}
 
 		log.
 			WithField("component", "http").
 			WithDuration(time.Since(start)).
-			Info("revalidate finished")
+			Info("Revalidate finished")
 	}()
 
 	w.WriteHeader(http.StatusOK)
@@ -206,13 +208,15 @@ func (r *Revalidator) Revalidate(ctx context.Context, routePaths []string) error
 }
 
 type Fetcher struct {
-	neosBaseURL string
-	client      *http.Client
+	neosBaseURL   string
+	publicBaseURL string
+	client        *http.Client
 }
 
 type FetcherOpts struct {
-	Timeout     time.Duration
-	NeosBaseURL string
+	Timeout       time.Duration
+	NeosBaseURL   string
+	PublicBaseURL string
 
 	Transport http.RoundTripper
 }
@@ -228,8 +232,9 @@ func NewFetcher(opts FetcherOpts) *Fetcher {
 	}
 
 	return &Fetcher{
-		client:      client,
-		neosBaseURL: opts.NeosBaseURL,
+		client:        client,
+		neosBaseURL:   opts.NeosBaseURL,
+		publicBaseURL: opts.PublicBaseURL,
 	}
 }
 
@@ -245,6 +250,29 @@ func (f *Fetcher) ListDocuments(ctx context.Context) (*DocumentsResponse, error)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("%s/neos/content-api/documents", f.neosBaseURL), nil)
 	if err != nil {
 		return nil, fmt.Errorf("building request: %w", err)
+	}
+
+	// Set proxy headers according to the public base URL (if set)
+	if f.publicBaseURL != "" {
+		u, err := url.Parse(f.publicBaseURL)
+		if err != nil {
+			return nil, fmt.Errorf("parsing public base URL: %w", err)
+		}
+		req.Header.Set("X-Forwarded-Host", u.Host)
+
+		port := u.Port()
+		if port == "" {
+			// Use default port according to scheme
+			switch u.Scheme {
+			case "http":
+				port = "80"
+			case "https":
+				port = "443"
+			}
+		}
+		req.Header.Set("X-Forwarded-Port", port)
+
+		req.Header.Set("X-Forwarded-Proto", u.Scheme)
 	}
 
 	resp, err := f.client.Do(req)
@@ -267,7 +295,6 @@ type controller struct {
 
 	revalidateBatchSize int
 
-	storage     *Storage
 	revalidator *Revalidator
 	fetcher     *Fetcher
 
@@ -276,11 +303,10 @@ type controller struct {
 	wg    sync.WaitGroup
 }
 
-func newController(storage *Storage, revalidator *Revalidator, fetcher *Fetcher) *controller {
+func newController(revalidator *Revalidator, fetcher *Fetcher) *controller {
 	ctrl := &controller{
 		revalidateBatchSize: 1,
 
-		storage:     storage,
 		revalidator: revalidator,
 		fetcher:     fetcher,
 
@@ -323,8 +349,8 @@ func (c *controller) revalidate(ctx context.Context, invalidatedDocuments []reva
 
 	log.
 		WithField("component", "controller").
-		WithField("invalidatedRoutePaths", invalidatedRoutePaths).
-		WithField("allRoutePaths", allRoutePaths).
+		WithField("invalidatedRoutePaths", strings.Join(invalidatedRoutePaths, ",")).
+		WithField("allRoutePaths", strings.Join(allRoutePaths, ",")).
 		Debug("Enqueuing route paths")
 
 	c.queue.enqueue(invalidatedRoutePaths, allRoutePaths)
@@ -394,7 +420,7 @@ func (c *controller) run() {
 
 			log.
 				WithField("component", "controller").
-				WithField("routePaths", routePaths).
+				WithField("routePaths", strings.Join(routePaths, ",")).
 				WithDuration(time.Since(start)).
 				Debug("Revalidate finished")
 		}
@@ -423,16 +449,4 @@ func (c *controller) queuePopBatch() []string {
 		}
 	}
 	return result
-}
-
-type Storage struct {
-}
-
-func NewStorage(dataPath string) (*Storage, error) {
-	err := os.MkdirAll(dataPath, 0755)
-	if err != nil {
-		return nil, fmt.Errorf("creating data directory: %w", err)
-	}
-
-	return &Storage{}, nil
 }
