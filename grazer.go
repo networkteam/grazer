@@ -134,10 +134,7 @@ func (h *Handler) ShutdownAndWait() {
 	h.wg.Wait()
 }
 
-func (h *Handler) InitialRevalidate(ctx context.Context) error {
-	log.
-		WithField("component", "controller").
-		Debug("Performing initial revalidate")
+func (h *Handler) FullRevalidate(ctx context.Context) error {
 	return h.ctrl.revalidate(ctx, nil)
 }
 

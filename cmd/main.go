@@ -13,9 +13,8 @@ import (
 	"github.com/apex/log"
 	"github.com/apex/log/handlers/logfmt"
 	"github.com/apex/log/handlers/text"
-	"github.com/mattn/go-isatty"
-
 	"github.com/cenkalti/backoff/v4"
+	"github.com/mattn/go-isatty"
 	"github.com/urfave/cli/v2"
 
 	"github.com/networkteam/grazer"
@@ -76,6 +75,11 @@ func main() {
 				Value:   15 * time.Second,
 				EnvVars: []string{"GZ_INITIAL_REVALIDATE_DELAY"},
 			},
+			&cli.StringSliceFlag{
+				Name:    "revalidate-schedule",
+				Usage:   `Add a cron schedule to trigger revalidation of all pages (e.g. "@hourly", "@daily", "30 * * * *")`,
+				EnvVars: []string{"GZ_REVALIDATE_SCHEDULE"},
+			},
 			&cli.BoolFlag{
 				Name:    "verbose",
 				Value:   false,
@@ -119,6 +123,11 @@ func main() {
 				Handler: h,
 			}
 
+			cr, err := createCron(c, h)
+			if err != nil {
+				return err
+			}
+
 			// Shutdown srv gracefully on signal and use wait group to wait for shutdown
 			shutdownCtx, shutdownDone := context.WithCancel(context.Background())
 			go func() {
@@ -130,6 +139,10 @@ func main() {
 						Error("Error shutting down server")
 				}
 				log.Debug("HTTP server shut down")
+
+				log.Debug("Stopping cron...")
+				cr.Stop()
+
 				log.Debug("Waiting for controller to finish...")
 				h.ShutdownAndWait()
 				log.Debug("Controller finished")
@@ -142,7 +155,11 @@ func main() {
 				time.AfterFunc(c.Duration("initial-revalidate-delay"), func() {
 					ctx := context.Background()
 					err := backoff.Retry(func() error {
-						err := h.InitialRevalidate(ctx)
+						log.
+							WithField("component", "controller").
+							Debug("Performing initial revalidate")
+
+						err := h.FullRevalidate(ctx)
 						if err != nil {
 							log.
 								WithError(err).
@@ -159,7 +176,7 @@ func main() {
 			}
 
 			log.Infof("Listening on %s", c.String("address"))
-			err := srv.ListenAndServe()
+			err = srv.ListenAndServe()
 			if errors.Is(err, http.ErrServerClosed) {
 				// expected error
 			} else if err != nil {

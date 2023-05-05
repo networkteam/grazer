@@ -6,6 +6,7 @@ require (
 	github.com/apex/log v1.9.0
 	github.com/cenkalti/backoff/v4 v4.2.0
 	github.com/mattn/go-isatty v0.0.17
+	github.com/robfig/cron/v3 v3.0.1
 	github.com/stretchr/testify v1.8.1
 	github.com/tj/assert v0.0.3
 	github.com/urfave/cli/v2 v2.24.4

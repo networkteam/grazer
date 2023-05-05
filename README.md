@@ -28,17 +28,18 @@ COMMANDS:
    help, h  Shows a list of commands or help for one command
 
 GLOBAL OPTIONS:
-   --address value                   Address for HTTP server to listen on (default: ":3100") [$GZ_ADDRESS]
-   --revalidate-token value          A secret token to use for revalidation [$GZ_REVALIDATE_TOKEN]
-   --next-revalidate-url value       The full URL to call to revalidate a page in Next.js [$GZ_NEXT_REVALIDATE_URL]
-   --revalidate-batch-size value     The number of documents to send for revalidation in one batch to Next.js (default: 1) [$GZ_REVALIDATE_BATCH_SIZE]
-   --revalidate-timeout value        Timeout for revalidation requests (default: 15s) [$GZ_REVALIDATE_TIMEOUT]
-   --neos-base-url value             The base URL of the Neos CMS instance for fetching documents from the content API [$GZ_NEOS_BASE_URL]
-   --public-base-url value           The publicly accessible base URL for sending correct proxy headers to Neos (for multi-site setups) [$GZ_PUBLIC_BASE_URL]
-   --fetch-timeout value             Timeout for fetching from the Neos content API (default: 15s) [$GZ_FETCH_TIMEOUT]
-   --initial-revalidate-delay value  Delay before an initial revalidation of all pages, set to 0 to disable (default: 15s) [$GZ_INITIAL_REVALIDATE_DELAY]
-   --verbose                         Enable verbose logging (default: false) [$GZ_VERBOSE]
-   --help, -h                        show help
+   --address value                                              Address for HTTP server to listen on (default: ":3100") [$GZ_ADDRESS]
+   --revalidate-token value                                     A secret token to use for revalidation [$GZ_REVALIDATE_TOKEN]
+   --next-revalidate-url value                                  The full URL to call to revalidate a page in Next.js [$GZ_NEXT_REVALIDATE_URL]
+   --revalidate-batch-size value                                The number of documents to send for revalidation in one batch to Next.js (default: 1) [$GZ_REVALIDATE_BATCH_SIZE]
+   --revalidate-timeout value                                   Timeout for revalidation requests (default: 15s) [$GZ_REVALIDATE_TIMEOUT]
+   --neos-base-url value                                        The base URL of the Neos CMS instance for fetching documents from the content API [$GZ_NEOS_BASE_URL]
+   --public-base-url value                                      The publicly accessible base URL for sending correct proxy headers to Neos (for multi-site setups) [$GZ_PUBLIC_BASE_URL]
+   --fetch-timeout value                                        Timeout for fetching from the Neos content API (default: 15s) [$GZ_FETCH_TIMEOUT]
+   --initial-revalidate-delay value                             Delay before an initial revalidation of all pages, set to 0 to disable (default: 15s) [$GZ_INITIAL_REVALIDATE_DELAY]
+   --revalidate-schedule value [ --revalidate-schedule value ]  Add a cron schedule to trigger revalidation of all pages (e.g. "@hourly", "@daily", "30 * * * *") [$GZ_REVALIDATE_SCHEDULE]
+   --verbose                                                    Enable verbose logging (default: false) [$GZ_VERBOSE]
+   --help, -h                                                   show help
 ```
 
 ## Caveats
